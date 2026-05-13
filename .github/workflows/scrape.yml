@@ -1,0 +1,30 @@
+name: Scraping matchs FFHB
+
+on:
+  schedule:
+    # Tous les lundis et jeudis à 6h00 UTC (8h00 heure Paris)
+    - cron: '0 6 * * 1,4'
+  workflow_dispatch:
+    # Permet aussi de lancer manuellement depuis GitHub
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Cloner le repo
+        uses: actions/checkout@v4
+
+      - name: Installer Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Installer les dépendances
+        run: npm install
+
+      - name: Lancer le scraping
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: node scripts/03-scrape-matchs.js
