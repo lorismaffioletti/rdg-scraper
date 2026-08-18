@@ -1,4 +1,8 @@
-// 02-discover-teams.js
+// 02-discover-teams.js v2
+// Découverte automatique des équipes FFHB
+// Lit les compétitions depuis competitions-SAISON.json
+// généré par 00-find-competitions.js
+
 import { createClient } from '@supabase/supabase-js'
 import dotenv from 'dotenv'
 import ical from 'node-ical'
@@ -11,57 +15,37 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY
 )
 
-const BASE_URL = 'https://competition-calendar.ffhandball.fr'
-const DELAY_MS = 300
-const ARRET_APRES = 200
+// ─── Config ───────────────────────────────────────────────────────────────────
+const SAISON          = '2026-2027'
+const JSON_FILE       = `competitions-${SAISON}.json`
+const BASE_URL        = 'https://competition-calendar.ffhandball.fr'
+const DELAY_MS        = 300
+const ARRET_APRES     = 500   // arrêt si X IDs vides consécutifs
+const ID_START        = 1300  // plage de scan début
+const ID_END          = 15000 // plage de scan fin (large pour couvrir nouveaux clubs)
 
-const COMPETITIONS = [
-  { competition: 'Nationale 1', niveau: 'national', lieu: 'France', genre: 'M', c: '28229', idStart: 3000, idEnd: 3600 },
-  { competition: 'Nationale 2', niveau: 'national', lieu: 'France', genre: 'M', c: '28230', idStart: 3000, idEnd: 3600 },
-  { competition: 'Nationale 3', niveau: 'national', lieu: 'France', genre: 'M', c: '28559', idStart: 3000, idEnd: 3600 },
-  { competition: 'Nationale 1', niveau: 'national', lieu: 'France', genre: 'F', c: '28626', idStart: 3000, idEnd: 3600 },
-  { competition: 'Nationale 2', niveau: 'national', lieu: 'France', genre: 'F', c: '28560', idStart: 3000, idEnd: 3600 },
-  { competition: 'R1', niveau: 'regional', lieu: 'Île-de-France', genre: 'M', c: '28402', idStart: 3100, idEnd: 3600 },
-  { competition: 'R2', niveau: 'regional', lieu: 'Île-de-France', genre: 'M', c: '28404', idStart: 3100, idEnd: 3600 },
-  { competition: 'R3', niveau: 'regional', lieu: 'Île-de-France', genre: 'M', c: '28406', idStart: 3100, idEnd: 3600 },
-  { competition: 'R1', niveau: 'regional', lieu: 'Île-de-France', genre: 'F', c: '28398', idStart: 3100, idEnd: 3600 },
-  { competition: 'R2', niveau: 'regional', lieu: 'Île-de-France', genre: 'F', c: '28403', idStart: 3100, idEnd: 3600 },
-  { competition: 'R3', niveau: 'regional', lieu: 'Île-de-France', genre: 'F', c: '28405', idStart: 3100, idEnd: 3600 },
-  { competition: 'D1', niveau: 'departemental', lieu: '94', genre: 'M', c: '28531', idStart: 3100, idEnd: 3600 },
-  { competition: 'D2', niveau: 'departemental', lieu: '94', genre: 'M', c: '28532', idStart: 3100, idEnd: 3600 },
-  { competition: 'D3', niveau: 'departemental', lieu: '94', genre: 'M', c: '28533', idStart: 3100, idEnd: 3600 },
-  { competition: 'D4', niveau: 'departemental', lieu: '94', genre: 'M', c: '28959', idStart: 3100, idEnd: 3600 },
-  { competition: 'D1', niveau: 'departemental', lieu: '94', genre: 'F', c: '28534', idStart: 3100, idEnd: 3600 },
-  { competition: 'D1', niveau: 'departemental', lieu: '95', genre: 'M', c: '28620', idStart: 3300, idEnd: 3600 },
-  { competition: 'D2', niveau: 'departemental', lieu: '95', genre: 'M', c: '28622', idStart: 3300, idEnd: 3600 },
-  { competition: 'D1', niveau: 'departemental', lieu: '95', genre: 'F', c: '28621', idStart: 3300, idEnd: 3600 },
-  { competition: 'D1', niveau: 'departemental', lieu: '93', genre: 'M', c: '28654', idStart: 3100, idEnd: 3600 },
-  { competition: 'D2', niveau: 'departemental', lieu: '93', genre: 'M', c: '28656', idStart: 3100, idEnd: 3600 },
-  { competition: 'D1', niveau: 'departemental', lieu: '93', genre: 'F', c: '28651', idStart: 3100, idEnd: 3600 },
-  { competition: 'D1', niveau: 'departemental', lieu: '92', genre: 'M', c: '28784', idStart: 3100, idEnd: 3600 },
-  { competition: 'D2', niveau: 'departemental', lieu: '92', genre: 'M', c: '28786', idStart: 3100, idEnd: 3600 },
-  { competition: 'D3', niveau: 'departemental', lieu: '92', genre: 'M', c: '28787', idStart: 3100, idEnd: 3600 },
-  { competition: 'D1', niveau: 'departemental', lieu: '92', genre: 'F', c: '28791', idStart: 3100, idEnd: 3600 },
-  { competition: 'Corpo', niveau: 'departemental', lieu: '75', genre: 'M', c: '29233', idStart: 3100, idEnd: 3300 },
-  { competition: 'D1', niveau: 'departemental', lieu: '91', genre: 'M', c: '28235', idStart: 3200, idEnd: 3600 },
-  { competition: 'D2', niveau: 'departemental', lieu: '91', genre: 'M', c: '28236', idStart: 3200, idEnd: 3600 },
-  { competition: 'D3', niveau: 'departemental', lieu: '91', genre: 'M', c: '28237', idStart: 3200, idEnd: 3600 },
-  { competition: 'D4', niveau: 'departemental', lieu: '91', genre: 'M', c: '28238', idStart: 3200, idEnd: 3600 },
-  { competition: 'D1', niveau: 'departemental', lieu: '91', genre: 'F', c: '28286', idStart: 3200, idEnd: 3600 },
-  { competition: 'D2', niveau: 'departemental', lieu: '91', genre: 'F', c: '28785', idStart: 3200, idEnd: 3600 },
-  { competition: 'D1', niveau: 'departemental', lieu: '78', genre: 'M', c: '28458', idStart: 3100, idEnd: 3600 },
-  { competition: 'D2', niveau: 'departemental', lieu: '78', genre: 'M', c: '28459', idStart: 3100, idEnd: 3600 },
-  { competition: 'D3', niveau: 'departemental', lieu: '78', genre: 'M', c: '28460', idStart: 3100, idEnd: 3600 },
-  { competition: 'D1', niveau: 'departemental', lieu: '78', genre: 'F', c: '28455', idStart: 3100, idEnd: 3600 },
-  { competition: 'D2', niveau: 'departemental', lieu: '78', genre: 'F', c: '28457', idStart: 3100, idEnd: 3600 },
-  { competition: 'D1', niveau: 'departemental', lieu: '77', genre: 'M', c: '27914', idStart: 3100, idEnd: 3600 },
-  { competition: 'D2', niveau: 'departemental', lieu: '77', genre: 'M', c: '27915', idStart: 3100, idEnd: 3600 },
-  { competition: 'D3', niveau: 'departemental', lieu: '77', genre: 'M', c: '27916', idStart: 3100, idEnd: 3600 },
-  { competition: 'D4', niveau: 'departemental', lieu: '77', genre: 'M', c: '27917', idStart: 3100, idEnd: 3600 },
-  { competition: 'D1', niveau: 'departemental', lieu: '77', genre: 'F', c: '27918', idStart: 3100, idEnd: 3600 },
-  { competition: 'D2', niveau: 'departemental', lieu: '77', genre: 'F', c: '27919', idStart: 3100, idEnd: 3600 },
-]
+// ─── Abréviations pour le matching ───────────────────────────────────────────
+const ABREVIATIONS = {
+  ' HB ':   ' HANDBALL ',
+  ' HBA ':  ' HANDBALL ',
+  ' HBC ':  ' HANDBALL CLUB ',
+  ' HBM ':  ' HANDBALL ',
+  ' HBF ':  ' HANDBALL ',
+  ' HBS ':  ' HANDBALL ',
+  ' ENT.':  ' ENTENTE',
+  ' SP. ':  ' SPORT ',
+  ' US ':   ' UNION SPORTIVE ',
+  ' AS ':   ' ASSOCIATION SPORTIVE ',
+  ' CA ':   ' CLUB ATHLETIQUE ',
+  ' COM ':  ' COMITE OMNISPORTS ',
+  ' SC ':   ' SPORTING CLUB ',
+  ' AC ':   ' ATHLETIC CLUB ',
+  ' SHB ':  ' SPORT HANDBALL ',
+  ' AHB ':  ' AGGLOMERATION HANDBALL ',
+  'HB$':    'HANDBALL',
+}
 
+// ─── Normalisation ────────────────────────────────────────────────────────────
 function normaliser(texte) {
   if (!texte) return ''
   return texte
@@ -73,32 +57,8 @@ function normaliser(texte) {
     .trim()
 }
 
-// ─── Dictionnaire d'abréviations ─────────────────────────────────────────────
-const ABREVIATIONS = {
-  ' HB ':   ' HANDBALL ',
-  ' HBA ':  ' HANDBALL ',
-  ' HBC ':  ' HANDBALL CLUB ',
-  ' HBM ':  ' HANDBALL ',
-  ' HBF ':  ' HANDBALL ',
-  ' HBS ':  ' HANDBALL ',
-  ' ENT.':  ' ENTENTE',
-  ' SP. ':  ' SPORT ',
-  ' SP$':   ' SPORT',
-  ' US ':   ' UNION SPORTIVE ',
-  ' AS ':   ' ASSOCIATION SPORTIVE ',
-  ' CA ':   ' CLUB ATHLETIQUE ',
-  ' COM ':  ' COMITE OMNISPORTS ',
-  ' SC ':   ' SPORTING CLUB ',
-  ' AC ':   ' ATHLETIC CLUB ',
-  ' EC ':   ' ENTENTE CLUB ',
-  ' SHB ':  ' SPORT HANDBALL ',
-  ' AHB ':  ' AGGLOMERATION HANDBALL ',
-  ' PHB ':  ' PAYS HANDBALL ',
-  'HB$':    'HANDBALL',
-}
-
+// ─── Nettoyage nom (supprime suffixes réserves et catégories) ─────────────────
 function nettoyerNom(nom) {
-  // Supprime les suffixes de réserves
   let nettoye = nom
     .replace(/\s*\+\d+[MF]?\d*\s*/gi, '')
     .replace(/\s*\([^)]*\)\s*/g, '')
@@ -108,7 +68,6 @@ function nettoyerNom(nom) {
     .trim()
 
   // Applique le dictionnaire d'abréviations
-  // On travaille en majuscules pour la comparaison
   let majuscule = ' ' + nettoye.toUpperCase() + ' '
   for (const [abrev, complet] of Object.entries(ABREVIATIONS)) {
     majuscule = majuscule.replaceAll(abrev, complet)
@@ -117,7 +76,7 @@ function nettoyerNom(nom) {
   return majuscule.trim()
 }
 
-// ─── Extraction nom depuis .ics ───────────────────────────────────────────────
+// ─── Probe une équipe via son .ics ────────────────────────────────────────────
 async function probeTeam(c, s) {
   const url = `${BASE_URL}/c-${c}/s-${s}.ics`
   try {
@@ -141,6 +100,7 @@ async function probeTeam(c, s) {
   }
 }
 
+// ─── Matching club dans Supabase ──────────────────────────────────────────────
 async function matcherClub(teamName) {
   const nomNettoye = nettoyerNom(teamName)
   const nomsATester = [...new Set([teamName, nomNettoye])]
@@ -156,7 +116,7 @@ async function matcherClub(teamName) {
       .single()
     if (exact) return { club: exact, confiance: 'exact' }
 
-    // Niveau 2 : nom équipe contenu dans nom club
+    // Niveau 2 : contenu dans
     const { data: partiel } = await supabase
       .from('clubs')
       .select('id, nom, nom_normalise')
@@ -164,24 +124,10 @@ async function matcherClub(teamName) {
       .limit(1)
       .single()
     if (partiel) return { club: partiel, confiance: 'partiel' }
-
-    // Niveau 3 : matching inversé — nom club contenu dans nom équipe
-    const { data: tous } = await supabase
-      .from('clubs')
-      .select('id, nom, nom_normalise')
-      .limit(2000)
-
-    if (tous) {
-      for (const club of tous) {
-        if (nomNormalise.includes(club.nom_normalise) && club.nom_normalise.length > 5) {
-          return { club, confiance: 'partiel' }
-        }
-      }
-    }
   }
 
-  // Niveau 4 : mots en commun (≥50%)
-  const motsEquipe = normaliser(nomNettoye)
+  // Niveau 3 : mots en commun ≥ 60% (seuil relevé pour éviter faux positifs)
+  const motsEquipe = normaliser(nettoyerNom(teamName))
     .split(' ')
     .filter(m => m.length > 3)
 
@@ -201,7 +147,7 @@ async function matcherClub(teamName) {
         const motsCommuns = motsEquipe.filter(m => motsClub.includes(m))
         const score = motsCommuns.length / motsEquipe.length
 
-        if (score > meilleurScore && score >= 0.5) {
+        if (score > meilleurScore && score >= 0.6 && motsCommuns.length >= 2) {
           meilleurScore = score
           meilleur = candidat
         }
@@ -214,38 +160,45 @@ async function matcherClub(teamName) {
   return { club: null, confiance: 'aucun' }
 }
 
+// ─── Upsert compétition en base ───────────────────────────────────────────────
 async function upsertCompetition(comp) {
+  const nom = [
+    comp.nom,
+    comp.genre === 'M' ? 'Masculine' : 'Féminine',
+  ].filter(Boolean).join(' ')
+
   const { data, error } = await supabase
     .from('competitions')
     .upsert({
       ffhb_competition_id: comp.c,
-      nom: `${comp.competition} ${comp.genre === 'M' ? 'Masculine' : 'Féminine'}`,
-      region: comp.lieu,
-      saison: '2025-2026',
+      nom,
+      region: comp.lieu || 'France',
+      saison: SAISON,
+      niveau: comp.type || null,
     }, { onConflict: 'ffhb_competition_id' })
     .select('id')
     .single()
 
   if (error) {
-    console.error(`Erreur compétition ${comp.c}:`, error.message)
+    console.error(`  ✗ Erreur compétition c-${comp.c}:`, error.message)
     return null
   }
   return data.id
 }
 
+// ─── Scan d'une compétition ───────────────────────────────────────────────────
 async function scannerCompetition(comp) {
-  const label = `${comp.competition} ${comp.genre} ${comp.lieu}`
-  const total = comp.idEnd - comp.idStart
-  console.log(`\n→ Scan ${label} (c-${comp.c}) — IDs ${comp.idStart} à ${comp.idEnd} (~${Math.round(total * DELAY_MS / 1000)}s)`)
+  const label = `${comp.nom} ${comp.genre} (${comp.lieu || 'France'})`
+  console.log(`\n→ ${label} [c-${comp.c}]`)
 
   const competitionId = await upsertCompetition(comp)
   if (!competitionId) return []
 
   const equipesTrouvees = []
-  let exact = 0, partiel = 0, aucun = 0
+  let nbExact = 0, nbPartiel = 0, nbAucun = 0
   let consecutifsVides = 0
 
-  for (let s = comp.idStart; s <= comp.idEnd; s++) {
+  for (let s = ID_START; s <= ID_END; s++) {
     const result = await probeTeam(comp.c, s)
 
     if (result) {
@@ -265,6 +218,7 @@ async function scannerCompetition(comp) {
       })
 
       if (club && confiance === 'exact') {
+        // Sauvegarde automatique
         await supabase
           .from('club_team_ids')
           .upsert({
@@ -283,11 +237,11 @@ async function scannerCompetition(comp) {
             source: 'auto_exact',
           }, { onConflict: 'alias' })
 
-        exact++
+        nbExact++
       } else if (club) {
-        partiel++
+        nbPartiel++
       } else {
-        aucun++
+        nbAucun++
       }
 
       const icon = confiance === 'exact' ? '✓' : confiance === 'partiel' ? '~' : '?'
@@ -299,7 +253,7 @@ async function scannerCompetition(comp) {
       process.stdout.write('.')
 
       if (consecutifsVides >= ARRET_APRES) {
-        console.log(`\n  Arrêt anticipé après ${ARRET_APRES} IDs vides consécutifs`)
+        console.log(`\n  Arrêt anticipé (${ARRET_APRES} IDs vides)`)
         break
       }
     }
@@ -307,22 +261,34 @@ async function scannerCompetition(comp) {
     await new Promise(r => setTimeout(r, DELAY_MS))
   }
 
-  console.log(`\n  Résultat : ${equipesTrouvees.length} équipes`)
-  console.log(`  ✓ Exact: ${exact} | ~ Partiel: ${partiel} | ? Aucun: ${aucun}`)
-
+  console.log(`\n  ✓ ${nbExact} exacts | ~ ${nbPartiel} partiels | ? ${nbAucun} inconnus`)
   return equipesTrouvees
 }
 
+// ─── Main ─────────────────────────────────────────────────────────────────────
 async function run() {
-  console.log(`Démarrage — ${COMPETITIONS.length} compétitions\n`)
+  console.log(`\n${'═'.repeat(60)}`)
+  console.log(`DÉCOUVERTE ÉQUIPES FFHB — Saison ${SAISON}`)
+  console.log('═'.repeat(60))
+
+  // Charger les compétitions depuis le JSON
+  if (!fs.existsSync(JSON_FILE)) {
+    console.error(`\n✗ Fichier ${JSON_FILE} introuvable !`)
+    console.error(`  Lance d'abord : node scripts/00-find-competitions.js`)
+    process.exit(1)
+  }
+
+  const competitions = JSON.parse(fs.readFileSync(JSON_FILE, 'utf-8'))
+  console.log(`\n${competitions.length} compétitions à scanner depuis ${JSON_FILE}\n`)
 
   const tousLesResultats = []
 
-  for (const comp of COMPETITIONS) {
+  for (const comp of competitions) {
     const equipes = await scannerCompetition(comp)
     tousLesResultats.push(...equipes)
   }
 
+  // ─── Génération du CSV pour validation manuelle ───────────────────────────
   const aValider = tousLesResultats.filter(e => e.confiance !== 'exact')
 
   const lignesCSV = [
@@ -336,25 +302,28 @@ async function run() {
       e.clubNom || '',
       e.clubId || '',
       e.confiance === 'partiel' ? 'CONFIRMER_OU_CORRIGER' : 'A_REMPLIR',
-    ].map(v => `"${v}"`).join(','))
+    ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))
   ]
 
   fs.writeFileSync('a-valider-manuellement.csv', lignesCSV.join('\n'))
 
-  const nbExact = tousLesResultats.filter(e => e.confiance === 'exact').length
+  // ─── Résumé ───────────────────────────────────────────────────────────────
+  const nbExact   = tousLesResultats.filter(e => e.confiance === 'exact').length
   const nbPartiel = tousLesResultats.filter(e => e.confiance === 'partiel').length
-  const nbAucun = tousLesResultats.filter(e => e.confiance === 'aucun').length
+  const nbAucun   = tousLesResultats.filter(e => e.confiance === 'aucun').length
 
-  console.log(`\n${'─'.repeat(50)}`)
-  console.log(`RÉSUMÉ FINAL`)
-  console.log('─'.repeat(50))
-  console.log(`✓ Sauvegardés en base   : ${nbExact} équipes`)
-  console.log(`~ À confirmer           : ${nbPartiel} équipes`)
-  console.log(`? À remplir manuellement: ${nbAucun} équipes`)
-  console.log(`Total                   : ${tousLesResultats.length} équipes`)
-  console.log(`\nFichier créé : a-valider-manuellement.csv`)
-  console.log('─'.repeat(50))
+  console.log(`\n${'─'.repeat(60)}`)
+  console.log('RÉSUMÉ FINAL')
+  console.log('─'.repeat(60))
+  console.log(`Compétitions scannées   : ${competitions.length}`)
+  console.log(`Équipes trouvées        : ${tousLesResultats.length}`)
+  console.log(`✓ Sauvegardées en base  : ${nbExact}`)
+  console.log(`~ À confirmer           : ${nbPartiel}`)
+  console.log(`? À remplir manuellement: ${nbAucun}`)
+  console.log(`\nFichier CSV créé        : a-valider-manuellement.csv`)
+  console.log('─'.repeat(60))
   console.log('\nScan terminé !')
+  console.log('→ Prochaine étape : node scripts/03-scrape-matchs.js')
 }
 
 run()
