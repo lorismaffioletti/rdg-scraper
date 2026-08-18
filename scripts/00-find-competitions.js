@@ -34,14 +34,14 @@ const COMITES = [
   { nom: 'National',      slug: 'national',      type: 'national'      },
 
   // ── Ligues régionales (pour N3, R1, R2, R3...) ──
-  { nom: 'Île-de-France', slug: 'ligue-ile-de-france', type: 'regional', id: '78' },
+  { nom: 'Île-de-France', slug: 'ligue-ile-de-france-20', type: 'regional', id: '20' },
 
   // ── Comités départementaux IDF ──
   { nom: 'Val-de-Marne (94)',    slug: 'comite-du-val-de-marne',    type: 'departemental', id: '124' },
   { nom: 'Val-d\'Oise (95)',     slug: 'comite-du-val-d-oise',      type: 'departemental', id: '125' },
   { nom: 'Seine-Saint-Denis (93)',slug:'comite-de-seine-saint-denis',type: 'departemental', id: '120' },
   { nom: 'Hauts-de-Seine (92)',  slug: 'comite-des-hauts-de-seine', type: 'departemental', id: '116' },
-  { nom: 'Essonne (91)',         slug: 'comite-de-l-essonne',       type: 'departemental', id: '113' },
+  { nom: 'Essonne (91)',         slug: 'comite-de-l-essonne-121',   type: 'departemental', id: '113' },
   { nom: 'Yvelines (78)',        slug: 'comite-des-yvelines',       type: 'departemental', id: '109' },
   { nom: 'Seine-et-Marne (77)',  slug: 'comite-de-seine-et-marne',  type: 'departemental', id: '107' },
 
@@ -203,9 +203,11 @@ async function chercherComite(comite) {
   const toutes = []
 
   // Stratégie 1 : cherche la page index du comité/ligue
-  const queryIndex = comite.id
-    ? `site:ffhandball.fr "${SAISON_SLUG}" "departemental" "${comite.slug}"`
-    : `site:ffhandball.fr "${SAISON_SLUG}" "${comite.type}" "${comite.slug.replace(/-/g, ' ')}"`
+  const queryIndex = comite.type === 'regional'
+    ? `site:ffhandball.fr "${SAISON_SLUG}/regional" "${comite.slug}" calendrier`
+    : comite.id
+      ? `site:ffhandball.fr "${SAISON_SLUG}" "departemental" "${comite.slug}"`
+      : `site:ffhandball.fr "${SAISON_SLUG}" "${comite.type}" "${comite.slug.replace(/-/g, ' ')}"`
 
   console.log(`  Recherche : ${queryIndex}`)
 
@@ -231,6 +233,23 @@ async function chercherComite(comite) {
     for (const comp of compNational) {
       if (!toutes.find(c => c.c === comp.c)) {
         console.log(`  ✓ c-${comp.c} — ${comp.nom} ${comp.genre}`)
+        toutes.push(comp)
+      }
+    }
+  }
+
+  // Stratégie 3 : R1M et R2M IDF (souvent absentes de l'index ligue)
+  if (comite.type === 'regional') {
+    const queryR1R2 = `site:ffhandball.fr "${SAISON_SLUG}/regional" "regionale-1-masculine" OR "regionale-2-masculine" "ligue-ile-de-france"`
+    console.log(`  Recherche : ${queryR1R2}`)
+
+    const resR1R2 = await brightDataSearch(queryR1R2)
+    const urlsR1R2 = (resR1R2?.organic || []).map(r => r.link).filter(Boolean)
+    const compR1R2 = extraireCompetitions(urlsR1R2, comite.nom, comite.type)
+
+    for (const comp of compR1R2) {
+      if (!toutes.find(c => c.c === comp.c)) {
+        console.log(`  ✓ c-${comp.c} — ${comp.nom} ${comp.genre}${comp.jeunes ? ' (jeunes)' : ''}`)
         toutes.push(comp)
       }
     }
