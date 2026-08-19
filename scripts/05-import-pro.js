@@ -16,6 +16,7 @@ const supabase = createClient(
 const BASE_URL = 'https://competition-calendar.ffhandball.fr'
 const EHF_URL = 'https://www.eurohandball.com/umbraco/api/calendarapi/GetCalendarEventFile?culture=en-US&contentId=1162'
 const TV_URL = 'https://tv-sports.fr/calendrier/sport/143/handball?direct=1'
+const LNH_TV_URL = 'https://www.addevent.com/feed/eeuhamusw.ics'
 const DELAY_MS = 200
 const TV_FENETRE_HEURES = 3
 
@@ -119,12 +120,17 @@ async function matcherClubInternational(nomEquipe, sourceIcs) {
   return null
 }
 
+// Alias demandé par le script : on réutilise la logique internationale existante
+async function matcherClub(nomEquipe) {
+  return matcherClubInternational(nomEquipe, 'lnh_tv')
+}
+
 async function trouverMatchExistant(clubDomId, clubExtId, dateHeure) {
   if (!clubDomId || !clubExtId || !dateHeure) return null
   const date = new Date(dateHeure)
   const dateMin = new Date(date.getTime() - TV_FENETRE_HEURES * 3600000).toISOString()
   const dateMax = new Date(date.getTime() + TV_FENETRE_HEURES * 3600000).toISOString()
-  const { data } = await supabase.from('matchs').select('id, diffuseur, source')
+  const { data } = await supabase.from('matchs').select('id, diffuseur, source, gymnase, adresse_gymnase')
     .eq('club_domicile_id', clubDomId).eq('club_exterieur_id', clubExtId)
     .gte('date_heure', dateMin).lte('date_heure', dateMax).single()
   return data || null
@@ -283,6 +289,116 @@ async function scraperTV() {
   console.log(`  -> ${nbEnrichis} enrichis | ${nbNouveaux} nouveaux`)
 }
 
+async function scraperLNH(competitionId) {
+  console.log('\n► LNH TV (feed .ics)')
+  if (!competitionId) return
+
+  let events = []
+  try {
+    const raw = await ical.async.fromURL(LNH_TV_URL)
+    events = Object.values(raw).filter(e => e.type === 'VEVENT')
+  } catch (err) {
+    console.log(`  Erreur LNH TV: ${err.message}`)
+    return
+  }
+
+  console.log(`  ${events.length} évènements .ics trouvés`)
+
+  let nbEnrichis = 0
+  let nbNouveaux = 0
+
+  for (const event of events) {
+    const summary = event.summary || ''
+    const partsTeams = summary.split(' // ')
+    if (partsTeams.length < 2) continue
+
+    const teamsPart = partsTeams[1].trim()
+    const parties = teamsPart.split(/\s+-\s+/).map(t => t.trim()).filter(Boolean)
+    if (parties.length !== 2) continue
+
+    const teamDomName = parties[0]
+    const teamExtName = parties[1]
+
+    const desc = String(event.description || '').replace(/\\n/g, '\n')
+
+    let diffuseur = null
+    const mDiff = desc.match(/En direct sur\s+(.+)/i)
+    if (mDiff) diffuseur = mDiff[1].split('\n')[0].trim()
+
+    const dateHeure = event.start?.toISOString() || null
+    const uid = event.uid || null
+    if (!uid || !dateHeure) continue
+
+    const locationRaw = event.location || null
+    let gymnase = null
+    let adresse_gymnase = null
+    if (locationRaw) {
+      const location = String(locationRaw).trim()
+      if (location.includes(',')) {
+        const [g, ...rest] = location.split(',').map(x => x.trim())
+        gymnase = g || null
+        adresse_gymnase = rest.length ? rest.join(', ') : null
+      } else {
+        gymnase = location
+      }
+    }
+
+    const resultDom = await matcherClub(teamDomName)
+    const resultExt = await matcherClub(teamExtName)
+    const clubDomId = resultDom?.club?.id || null
+    const clubExtId = resultExt?.club?.id || null
+    if (!clubDomId || !clubExtId) continue
+
+    const statut = event.start && event.start > new Date() ? 'a_venir' : 'passe'
+    const scraped_at = new Date().toISOString()
+
+    // Fusion ±3h (et enrichissement : gymnase seulement si null côté DB)
+    if (resultDom?.source === 'ffhb' && resultExt?.source === 'ffhb') {
+      const matchExistant = await trouverMatchExistant(clubDomId, clubExtId, dateHeure)
+      if (matchExistant) {
+        const patch = {
+          diffuseur,
+          scraped_at,
+        }
+
+        if ((matchExistant.gymnase === null || matchExistant.gymnase === undefined) && gymnase) {
+          patch.gymnase = gymnase
+          if (adresse_gymnase) patch.adresse_gymnase = adresse_gymnase
+        }
+
+        await supabase.from('matchs').update(patch).eq('id', matchExistant.id)
+        console.log(`  📺 Enrichi: ${teamDomName} vs ${teamExtName} -> ${diffuseur || 'sans chaine'}`)
+        nbEnrichis++
+        await new Promise(r => setTimeout(r, 50))
+        continue
+      }
+    }
+
+    await supabase.from('matchs').upsert({
+      uid_ics: uid,
+      competition_id: competitionId,
+      club_domicile_id: clubDomId,
+      club_exterieur_id: clubExtId,
+      date_heure: dateHeure,
+      gymnase,
+      adresse_gymnase,
+      lat: null,
+      lon: null,
+      url_match: event.url || null,
+      statut,
+      diffuseur,
+      source: 'lnh_tv',
+      scraped_at,
+    }, { onConflict: 'uid_ics', ignoreDuplicates: false })
+
+    console.log(`  📺 Nouveau: ${teamDomName} vs ${teamExtName} -> ${diffuseur || 'sans chaine'}`)
+    nbNouveaux++
+    await new Promise(r => setTimeout(r, 50))
+  }
+
+  console.log(`  -> ${nbEnrichis} enrichis | ${nbNouveaux} nouveaux`)
+}
+
 async function run() {
   console.log('===================================================')
   console.log('  05-import-pro.js v2')
@@ -310,6 +426,10 @@ async function run() {
 
   await scraperEHF()
   await scraperTV()
+
+  // Même compétition que le scraper TV (handball diffusé en direct)
+  const compTV = { id: await upsertCompetition('tv-sports-handball', 'Diffusions TV Handball', 'tv', 'France') }
+  await scraperLNH(compTV.id)
 
   const { count: nbPending } = await supabase
     .from('club_mappings_internationaux').select('*', { count: 'exact', head: true })
