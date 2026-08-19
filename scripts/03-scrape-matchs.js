@@ -64,6 +64,7 @@ function parseEvent(event, competitionId, clubDomicileId, clubExterieurId) {
     lon: null,
     url_match: urlMatch,
     statut: statut,
+    source: 'ffhb',
     scraped_at: new Date().toISOString(),
   }
 }
