@@ -230,9 +230,8 @@ async function etape1(equipesConnues, nouvellesCompetitions) {
       niveauxATester.includes(c.type)
     )
 
-    process.stdout.write(`  s-${s} (${niveau_ancien}) → ${competitionsATester.length} c- à tester`)
+    process.stdout.write(`  s-${s} (${niveau_ancien}) → `)
 
-    let trouve = false
     for (const comp of competitionsATester) {
       const result = await probeTeam(comp.c, s)
       nbTestes++
@@ -258,17 +257,11 @@ async function etape1(equipesConnues, nouvellesCompetitions) {
           await sauvegarderEquipe(s, result.teamName, competitionId, comp.c, club.id, confiance)
         }
 
-        trouve = true
         process.stdout.write(` ✓ ${comp.nom}\n`)
         nbTrouves++
-        break // On a trouvé la compétition de ce s-, on passe au suivant
       }
 
       await new Promise(r => setTimeout(r, DELAY_MS))
-    }
-
-    if (!trouve) {
-      process.stdout.write(` — non trouvé dans nouvelles compétitions\n`)
     }
   }
 
